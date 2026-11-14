@@ -1,0 +1,111 @@
+# Push a tag like `v0.2.0` (matching the workspace version in Cargo.toml) to
+# publish a release. The desktop app updates itself from these releases: it
+# downloads `storm-windows-x86_64.exe` and only accepts it with a matching
+# SHA256SUMS entry and a minisign signature bound to the release version.
+#
+# Needs the repo secret MINISIGN_SECRET_KEY (contents of the minisign secret
+# key file). Its public half is MINISIGN_PUBLIC_KEY below and in
+# crates/storm-app/src/updater.rs; they must match.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  MINISIGN_PUBLIC_KEY: RWTgrKK3kURq20adSQ1+URhVQ95yAr26C+Mx60oZFLDaRcdbca6XgSA8
+
+jobs:
+  version:
+    name: Check tag matches Cargo version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "storm-app") | .version')
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match storm-app version $cargo_version"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Build Windows
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The app aborts on panic (profile `release`); the server unwinds (`release-server`).
+      - run: cargo build --release --locked -p storm-app
+      - run: cargo build --profile release-server --locked -p storm-server --bin stormd
+      - shell: bash
+        run: |
+          mkdir dist
+          cp target/release/storm.exe dist/storm-windows-x86_64.exe
+          cp target/release-server/stormd.exe dist/stormd-windows-x86_64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  linux:
+    name: Build stormd (Linux)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --profile release-server --locked -p storm-server --bin stormd
+      - run: |
+          mkdir dist
+          tar -czf dist/stormd-linux-x86_64.tar.gz -C target/release-server stormd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+  publish:
+    name: Sign and publish
+    needs: [version, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-tools
+      - name: Install gpui-updater-release
+        run: cargo install gpui-updater-release --version 0.4.4 --features cli --locked
+      - name: Sign
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::error::The MINISIGN_SECRET_KEY secret is not set"
+            exit 1
+          fi
+          cd dist
+          gpui-updater-release sign minisign --version "${{ needs.version.outputs.version }}" *
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Storm ${{ needs.version.outputs.version }}" --generate-notes dist/*

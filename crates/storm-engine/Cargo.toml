@@ -1,0 +1,22 @@
+[package]
+name = "storm-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+directories = "6.0.0"
+futures = "0.3.34"
+librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }
+rusqlite = { version = "0.42.0", features = ["bundled"] }
+serde = "1.0.229"
+serde_json = "1.0.154"
+storm-proto = { version = "0.1.0", path = "../storm-proto" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }

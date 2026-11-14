@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+storm-proto = { path = "crates/storm-proto" }
+storm-engine = { path = "crates/storm-engine" }
+storm-server = { path = "crates/storm-server" }
+storm-client = { path = "crates/storm-client" }
+
+[profile.release]
+# Optimise for size: most of the binary is UI toolkit code that isn't hot.
+# Whole-program optimisation drops what's unreachable; no symbol tables
+# (debug info lives in the .pdb on Windows either way).
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true
+# The desktop app aborts on panic: no unwinding tables or landing pads, ~9 MB
+# smaller. Panics are still logged to <data dir>/crash.log (see main.rs).
+panic = "abort"
+
+# ...but keep the torrent data path at full speed.
+[profile.release.package.librqbit]
+opt-level = 3
+[profile.release.package.librqbit-core]
+opt-level = 3
+[profile.release.package.librqbit-utp]
+opt-level = 3
+[profile.release.package.librqbit-sha1-wrapper]
+opt-level = 3
+[profile.release.package.librqbit-buffers]
+opt-level = 3
+[profile.release.package.librqbit-peer-protocol]
+opt-level = 3
+[profile.release.package.tokio]
+opt-level = 3
+[profile.release.package.aws-lc-sys]
+opt-level = 3
+
+# Release with symbols, for `cargo bloat --profile bloat`.
+[profile.bloat]
+inherits = "release"
+strip = false
+
+# The server keeps the default unwinding: a panic in one torrent's task then
+# only kills that task instead of the whole long-running daemon.
+# `cargo build --profile release-server -p storm-server`.
+[profile.release-server]
+inherits = "release"
+panic = "unwind"
