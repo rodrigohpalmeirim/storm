@@ -35,16 +35,11 @@ use crate::single_instance::Launch;
 /// Overrides where the engine keeps its database and session state.
 const DATA_DIR_ENV: &str = "STORM_DATA_DIR";
 
-const APP_ICON: &[u8] = include_bytes!("../../../assets/icon.svg");
-
-/// The full Lucide icon catalog plus our own app icon.
+/// gpui-component's icons plus the extra Lucide icons in [`StormIcons`].
 struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        if path == "storm/icon.svg" {
-            return Ok(Some(Cow::Borrowed(APP_ICON)));
-        }
         if let Some(svg) = StormIcons.load(path)? {
             return Ok(Some(svg));
         }
